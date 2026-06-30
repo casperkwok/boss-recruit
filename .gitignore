@@ -1,0 +1,12 @@
+# 依赖
+node_modules/
+
+# 系统
+.DS_Store
+*.log
+
+# 运行时数据 / 敏感凭证（正常情况下在 ~/.opencli/boss-recruit/，此处为防御性忽略）
+target.json
+task-memory.json
+*.local.*
+lib/_selftest.mjs
