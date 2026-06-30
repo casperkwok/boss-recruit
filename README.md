@@ -62,6 +62,8 @@ opencli doctor   # 三项全 OK 即可
 
 ## 配置飞书目标表（首次必做）
 
+> ⭐ **推荐直接套用现成模板**：[小良知聘 · 人才库模板](https://pixelbit.feishu.cn/base/T0q4bV9m8aEEJfsmornc053Xnpe?table=tblyYqSydskSv6mz&view=vewqRMCg2L) —— 姓名/简历来源/当前阶段/简历附件/AI 评估等字段都已配好。打开后「使用模板/创建副本」到你自己的飞书，再获取授权码即可。
+
 "同步到哪张表"不硬编码，由 `setup.mjs` 解析飞书链接并持久化。
 
 ```bash
