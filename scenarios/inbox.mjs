@@ -2,11 +2,11 @@
 /**
  * 场景1：新招呼收件箱 端到端编排
  * ───────────────────────────────────────────────────────────────────────────
- * 流程（一人一事务，附件优先 —— 核心目的是同步附件简历，不读在线简历）：
+ * 流程（一人一事务，附件优先 —— 同步只针对附件简历，在线简历仅作打招呼上下文不同步）：
  *   boss recommend → task-memory 选本轮 → 逐个：
  *     ① 风控探针 → ② boss attachment 试附件:
- *          有  → 建/更最小记录(基本信息来自 recommend) + 上传 PDF → status=synced(通过初筛)
- *          无  → 主动发消息要简历(默认 dry-run, 只记本地状态) → status=attachment_requested
+ *          有  → 建/更最小记录(基本信息来自 recommend) + 上传 PDF → synced(通过初筛)；不读在线简历
+ *          无  → 读在线简历(仅作称呼/上下文写打招呼，不同步) → 发消息要简历(默认 dry-run,只记本地) → attachment_requested
  *     ③ BatchController 控节奏(随机延时 / 周期风控校验 / 单轮上限 / 连续失败熔断)
  *
  * 用法:
@@ -99,8 +99,15 @@ async function main() {
         results.push({ name: c.name, status: 'synced(附件)' });
         bc.success();
       } else {
-        // 没附件 → 主动要简历（只记本地状态，不在飞书建无简历的记录）
-        const tpl = RESUME_REQUEST_TEMPLATES[bc.done % RESUME_REQUEST_TEMPLATES.length](c);
+        // 没附件 → 读在线简历（仅作打招呼的称呼/上下文，不同步飞书）→ 主动要简历
+        let profile = {};
+        try {
+          const rr = await oc(['boss', 'resume', c.uid, '--format', 'json']);
+          profile = (rr && rr[0]) || {};
+          log(`  档案(仅用于话术): ${profile.gender || '?'} ${profile.experience || ''} ${profile.degree || ''}`);
+        } catch { /* 读不到 → 称呼回退"您好" */ }
+        const ctx = { ...c, gender: profile.gender, experience: profile.experience, degree: profile.degree, school: profile.school };
+        const tpl = RESUME_REQUEST_TEMPLATES[bc.done % RESUME_REQUEST_TEMPLATES.length](ctx);
         if (LIVE) {
           await R.assertNoRisk(session, log);
           await pexec('opencli', ['boss', 'send', c.uid, tpl], { timeout: 90000 });
