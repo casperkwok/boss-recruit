@@ -2,13 +2,12 @@
 /**
  * 场景1：新招呼收件箱 端到端编排
  * ───────────────────────────────────────────────────────────────────────────
- * 流程（一人一事务）：
+ * 流程（一人一事务，附件优先 —— 核心目的是同步附件简历，不读在线简历）：
  *   boss recommend → task-memory 选本轮 → 逐个：
- *     ① 风控探针 → ② boss resume 读档案 → ③ 同步飞书(建/更记录)
- *     ④ boss attachment 试附件:
- *          有  → 下载 + 上传飞书简历附件 → status=synced
- *          无  → 主动发消息要简历(默认 dry-run) → status=attachment_requested
- *     ⑤ BatchController 控节奏(随机延时 / 周期风控校验 / 单轮上限 / 连续失败熔断)
+ *     ① 风控探针 → ② boss attachment 试附件:
+ *          有  → 建/更最小记录(基本信息来自 recommend) + 上传 PDF → status=synced(通过初筛)
+ *          无  → 主动发消息要简历(默认 dry-run, 只记本地状态) → status=attachment_requested
+ *     ③ BatchController 控节奏(随机延时 / 周期风控校验 / 单轮上限 / 连续失败熔断)
  *
  * 用法:
  *   node inbox.mjs                 # 默认: 只读+同步全自动, 打招呼 dry-run(只演示不真发)
@@ -85,48 +84,31 @@ async function main() {
     try {
       await R.assertNoRisk(session, log);                       // ① 风控探针
 
-      // ② 读在线简历档案
-      let profile = {};
-      try {
-        const rr = await oc(['boss', 'resume', c.uid, '--format', 'json']);
-        profile = (rr && rr[0]) || {};
-        profile.job_name = c.job_name;
-        log(`  档案: ${profile.gender || '?'} ${profile.age || ''} ${profile.degree || ''} ${profile.experience || ''}`);
-      } catch (e) {
-        tm.setStatus(c.uid, Status.RESUME_READ_FAILED, { name: c.name });
-        log(`  ⚠️ 简历读取失败，标记下轮补读: ${String(e.message).slice(0, 60)}`);
-        results.push({ name: c.name, status: 'resume_read_failed' });
-        bc.failure(); await bc.betweenActions(session); continue;
-      }
-
-      // ③ 同步飞书（建/更记录）
-      const rec = tm.get(c.uid);
-      const recordId = await FS.syncProfile(profile, Status.RESUME_READ, rec?.record_id);
-      tm.upsert(c.uid, { name: c.name, status: Status.RESUME_READ, record_id: recordId, job_name: c.job_name });
-      log(`  ✓ 档案已同步飞书 (record ${recordId})`);
-
-      // ④ 试下附件简历
+      // ② 附件优先：核心目的是同步附件简历，不读在线简历
       const at = await oc(['boss', 'attachment', c.uid, '--name', c.name || '', '--format', 'json']);
       const a = (at && at[0]) || {};
+
       if (a.status === 'downloaded' && a.file) {
+        // 有附件 → 建/更最小记录（基本信息来自 recommend）+ 上传 PDF
+        const rec = tm.get(c.uid);
+        const basic = { name: c.name, job_name: c.job_name };
+        const recordId = await FS.syncProfile(basic, Status.SYNCED, rec?.record_id);
         await FS.uploadAttachment(recordId, a.file);
-        await FS.updateRecord(recordId, { 当前阶段: '通过初筛' });
-        tm.setStatus(c.uid, Status.SYNCED, { name: c.name, record_id: recordId, resume_file: a.file });
-        log(`  ✓ 附件简历已下载+同步 (${(a.size / 1024).toFixed(0)}KB) → 通过初筛`);
+        tm.setStatus(c.uid, Status.SYNCED, { name: c.name, record_id: recordId, resume_file: a.file, job_name: c.job_name });
+        log(`  ✓ 附件简历已同步飞书 (${(a.size / 1024).toFixed(0)}KB) → 通过初筛`);
         results.push({ name: c.name, status: 'synced(附件)' });
         bc.success();
       } else {
-        // ⑤ 没附件 → 主动要简历（话术带性别，自动先生/女士）
-        const ctx = { ...c, gender: profile.gender };
-        const tpl = RESUME_REQUEST_TEMPLATES[bc.done % RESUME_REQUEST_TEMPLATES.length](ctx);
+        // 没附件 → 主动要简历（只记本地状态，不在飞书建无简历的记录）
+        const tpl = RESUME_REQUEST_TEMPLATES[bc.done % RESUME_REQUEST_TEMPLATES.length](c);
         if (LIVE) {
           await R.assertNoRisk(session, log);
           await pexec('opencli', ['boss', 'send', c.uid, tpl], { timeout: 90000 });
-          tm.setStatus(c.uid, Status.ATTACHMENT_REQUESTED, { name: c.name, record_id: recordId, requested_at: new Date().toISOString() });
+          tm.setStatus(c.uid, Status.ATTACHMENT_REQUESTED, { name: c.name, job_name: c.job_name, requested_at: new Date().toISOString() });
           log(`  ✉️  已发送要简历消息: 「${tpl.slice(0, 28)}…」`);
           results.push({ name: c.name, status: 'attachment_requested' });
         } else {
-          tm.setStatus(c.uid, Status.ATTACHMENT_REQUESTED, { name: c.name, record_id: recordId, dry_run: true });
+          tm.setStatus(c.uid, Status.ATTACHMENT_REQUESTED, { name: c.name, job_name: c.job_name, dry_run: true });
           log(`  📝 [DRY-RUN] 将发送: 「${tpl}」`);
           results.push({ name: c.name, status: 'would_request(dry-run)' });
         }
