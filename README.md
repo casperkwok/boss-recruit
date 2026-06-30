@@ -36,15 +36,28 @@ boss recommend(拉新招呼) → 去重 → 逐个[一人一事务]:
 ## 安装
 
 ```bash
-# 1) 装 skill
-git clone https://github.com/<your-name>/boss-recruit ~/.claude/skills/boss-recruit
+# 1) 装 OpenCLI
+npm install -g @jackwener/opencli
 
-# 2) 装配套的 OpenCLI 适配器（零弹窗下载附件简历）
+# 2) 装 skill
+git clone https://github.com/casperkwok/boss-recruit ~/.claude/skills/boss-recruit
+
+# 3) 装配套的 OpenCLI 适配器（零弹窗下载附件简历）
 mkdir -p ~/.opencli/clis/boss
 cp ~/.claude/skills/boss-recruit/adapters/boss/attachment.js ~/.opencli/clis/boss/
+```
 
-# 3) 确认 OpenCLI 就绪（需先装好 Browser Bridge 扩展并登录 Boss 招聘端）
-opencli doctor
+### 安装 Browser Bridge 扩展（二选一）
+
+OpenCLI 通过一个 Chrome 扩展连接浏览器：
+
+- **Chrome 应用商店（推荐）**：<https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk>
+- **源码 / 手动安装**：到 [Releases](https://github.com/jackwener/opencli/releases) 下载 `opencli-extension-v*.zip` → 解压 → `chrome://extensions` 开启「开发者模式」→「加载已解压的扩展程序」选该文件夹。
+
+装好后在该 Chrome 登录 **BOSS 招聘端账号**，然后确认就绪：
+
+```bash
+opencli doctor   # 三项全 OK 即可
 ```
 
 ## 配置飞书目标表（首次必做）
